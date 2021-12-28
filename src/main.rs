@@ -1,12 +1,12 @@
 #[macro_use]
 extern crate log;
 
-mod commit_log;
-
+use actix_web::HttpServer;
 use dotenv::dotenv;
-use std::env;
 
-use actix_web::{middleware, App, HttpServer};
+mod app;
+mod commit_log;
+mod routes;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -16,13 +16,14 @@ async fn main() -> std::io::Result<()> {
 
   env_logger::init();
 
-  let host = env::var("HOST").unwrap();
-  let port = env::var("PORT").unwrap().parse::<u16>().unwrap();
+  let host = std::env::var("HOST").unwrap();
+  let port = std::env::var("PORT").unwrap().parse::<u16>().unwrap();
 
   info!("starting server at {}:{}", &host, port);
 
-  HttpServer::new(move || App::new().wrap(middleware::Logger::default()))
-    .bind((host, port))?
+  HttpServer::new(move || app::new())
+    .bind((host, port))
+    .unwrap()
     .run()
     .await
 }
