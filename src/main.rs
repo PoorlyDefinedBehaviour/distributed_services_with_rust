@@ -21,7 +21,7 @@ async fn main() -> std::io::Result<()> {
 
   info!("starting server at {}:{}", &host, port);
 
-  HttpServer::new(move || app::new())
+  HttpServer::new(move || create_app!())
     .bind((host, port))
     .unwrap()
     .run()
