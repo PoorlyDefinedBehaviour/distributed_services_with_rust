@@ -32,8 +32,8 @@ impl CommitLog {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Record {
-  value: String,
-  offset: usize,
+  pub value: String,
+  pub offset: usize,
 }
 
 #[cfg(test)]
