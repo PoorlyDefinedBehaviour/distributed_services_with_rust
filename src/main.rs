@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate log;
 
+mod commit_log;
+
 use dotenv::dotenv;
 use std::env;
 
