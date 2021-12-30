@@ -53,7 +53,7 @@ pub struct Index {
 
 #[derive(Debug)]
 pub struct Config {
-  segment: segment::Config,
+  pub segment: segment::Config,
 }
 
 #[derive(Debug, PartialEq, Error)]
@@ -149,6 +149,26 @@ impl Index {
     Ok(position)
   }
 
+  // Returns the offset contained by the last index entry.
+  pub fn last_offset(&self) -> Option<u32> {
+    if self.is_empty() {
+      return None;
+    }
+
+    let offset_starts_at = ((self.len() - 1) * ENTRY_WIDTH) as usize;
+
+    let offset_range = offset_starts_at..(offset_starts_at + OFFSET_WIDTH as usize);
+
+    let mut buffer = [0u8; 4];
+
+    // Copy position bytes(8 bytes) to buffer.
+    buffer[..].copy_from_slice(&self.mmap[offset_range]);
+
+    let offset = u32::from_be_bytes(buffer);
+
+    Some(offset)
+  }
+
   /// Syncs memory-mapped file to the persisted file,
   /// flushes persisted file contents to stable storage
   /// and truncates the persisted file to the amount of data
@@ -180,7 +200,9 @@ mod tests {
     let mut index1 = Index::new(
       file.into_file(),
       Config {
-        segment: SegmentConfig {
+        segment: segment::Config {
+          initial_offset: 0,
+          max_store_bytes: 0,
           max_index_bytes: 1024,
         },
       },
@@ -197,7 +219,9 @@ mod tests {
     let index2 = Index::new(
       file_copy,
       Config {
-        segment: SegmentConfig {
+        segment: segment::Config {
+          initial_offset: 0,
+          max_store_bytes: 0,
           max_index_bytes: 1024,
         },
       },
@@ -215,7 +239,9 @@ mod tests {
     let mut index = Index::new(
       file_write.into_file(),
       Config {
-        segment: SegmentConfig {
+        segment: segment::Config {
+          initial_offset: 0,
+          max_store_bytes: 0,
           max_index_bytes: 1024,
         },
       },
@@ -261,7 +287,9 @@ mod tests {
     let mut index = Index::new(
       file_write.into_file(),
       Config {
-        segment: SegmentConfig {
+        segment: segment::Config {
+          initial_offset: 0,
+          max_store_bytes: 0,
           max_index_bytes: 1024,
         },
       },
@@ -296,7 +324,9 @@ mod tests {
     let mut index = Index::new(
       file_write.into_file(),
       Config {
-        segment: SegmentConfig {
+        segment: segment::Config {
+          initial_offset: 0,
+          max_store_bytes: 0,
           max_index_bytes: 1024,
         },
       },
@@ -314,5 +344,35 @@ mod tests {
     assert_eq!(Ok(1), index.read(2));
     assert_eq!(Ok(333), index.read(3));
     assert_eq!(Ok(42), index.read(4));
+  }
+
+  #[test]
+  fn last_offset_returns_the_offset_contained_by_the_last_index_entry() {
+    let mut index = Index::new(
+      NamedTempFile::new().unwrap().into_file(),
+      Config {
+        segment: segment::Config {
+          initial_offset: 0,
+          max_store_bytes: 0,
+          max_index_bytes: 1024,
+        },
+      },
+    )
+    .unwrap();
+
+    // Empty index does not have any offsets.
+    assert_eq!(None, index.last_offset());
+
+    index.write(0, 1).unwrap();
+
+    assert_eq!(Some(0), index.last_offset());
+
+    index.write(1, 2).unwrap();
+
+    assert_eq!(Some(1), index.last_offset());
+
+    index.write(333, 3).unwrap();
+
+    assert_eq!(Some(333), index.last_offset());
   }
 }
