@@ -19,6 +19,7 @@ prost = "0.9"
 # Only necessary if using Protobuf well-known types:
 # TODO: remove me if i end up not being used.
 prost-types = "0.9"
+memmap = "0.7.0"
 
 [build-dependencies]
 prost-build = "0.5"
