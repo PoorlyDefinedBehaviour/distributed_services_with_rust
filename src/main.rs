@@ -6,6 +6,7 @@ use dotenv::dotenv;
 
 mod app;
 mod commit_log;
+mod index;
 mod routes;
 mod store;
 
