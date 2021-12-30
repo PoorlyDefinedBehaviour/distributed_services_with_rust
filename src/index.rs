@@ -29,6 +29,8 @@ use std::{fs::File, io::Write};
 use anyhow::Result;
 use memmap::MmapMut;
 use thiserror::Error;
+
+use crate::segment;
 /// WIDTH constants define the number of bytes that
 /// make up each index entry.
 ///
@@ -50,15 +52,8 @@ pub struct Index {
 }
 
 #[derive(Debug)]
-pub struct SegmentConfig {
-  max_index_bytes: u64,
-  max_store_bytes: u64,
-  initial_offset: u64,
-}
-
-#[derive(Debug)]
 pub struct Config {
-  segment: SegmentConfig,
+  segment: segment::Config,
 }
 
 #[derive(Debug, PartialEq, Error)]
