@@ -86,7 +86,7 @@ impl Index {
 
   /// Returns how many entries the index contains.
   fn len(&self) -> u64 {
-    return self.size / ENTRY_WIDTH;
+    self.size / ENTRY_WIDTH
   }
 
   /// Returns true when the index contains no entries.
