@@ -129,6 +129,13 @@ impl Store {
 
     writer.flush()
   }
+
+  /// Returns the store file size.
+  ///
+  /// The file size is the sum of all entries in the file.
+  pub fn size(&self) -> u64 {
+    self.file_size
+  }
 }
 
 #[cfg(test)]
@@ -201,5 +208,20 @@ mod tests {
 
       assert_eq!(bytes.to_vec(), buffer);
     }
+  }
+
+  #[test]
+  fn test_size() {
+    let file_write = NamedTempFile::new().unwrap();
+
+    let mut store = Store::new(file_write.into_file()).unwrap();
+
+    assert_eq!(store.size(), 0);
+
+    let bytes = "abc 123".as_bytes();
+
+    store.append(bytes).unwrap();
+
+    assert_eq!(store.size(), (bytes.len() + LEN_WIDTH) as u64);
   }
 }
