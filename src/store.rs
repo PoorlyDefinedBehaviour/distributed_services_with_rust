@@ -1,14 +1,14 @@
 /// Store represents a file where records are stored.
 use std::{
   fs::{File, Metadata},
-  io::{BufWriter, Write},
+  io::{BufWriter, Read, Write},
   os::unix::prelude::FileExt,
   sync::Mutex,
 };
 
 use anyhow::Result;
 
-static LEN_WIDTH: usize = 8;
+const LEN_WIDTH: usize = 8;
 
 #[derive(Debug)]
 pub struct Store {
@@ -23,10 +23,10 @@ pub struct Store {
   file_size: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct AppendOutput {
-  appended_at: u64,
-  bytes_written: u64,
+  pub appended_at: u64,
+  pub bytes_written: u64,
 }
 
 impl Store {
@@ -40,13 +40,34 @@ impl Store {
     })
   }
 
+  /// Appends a new entry to the store file.
+  ///
+  /// Each entry contains the buffer length followed by the buffer
+  /// contents.
+  ///
+  /// An entry looks like this:
+  ///
+  ///                              Entry
+  /// ┌────────────────────────────────────────────────────────────────┐
+  /// │                                                                │
+  /// │   LEN                   hello world                            │
+  /// │ ┌────┬┬──────────────────────────────────────────────────────┐ │
+  /// │ │ 11 ││ 104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100 │ │
+  /// │ └────┴┴──────────────────────────────────────────────────────┘ │
+  /// │                                                                │
+  /// └────────────────────────────────────────────────────────────────┘
+  ///
+  /// Returns how many bytes were written to the store file and
+  /// the position in the store file where the entry begins.
   pub fn append(&mut self, buffer: &[u8]) -> Result<AppendOutput> {
     let mut writer = self.writer.lock().unwrap();
 
     let appended_at = self.file_size;
 
-    // TODO: why is LEN_WIDTH used here?
-    let bytes_written = (LEN_WIDTH + writer.write(buffer)?) as u64;
+    writer.write_all(&buffer.len().to_be_bytes())?;
+    writer.write_all(buffer)?;
+
+    let bytes_written = (LEN_WIDTH + buffer.len()) as u64;
 
     self.file_size += bytes_written;
 
@@ -56,6 +77,11 @@ impl Store {
     })
   }
 
+  /// Returns the entry contents at position.
+  ///
+  /// First, the entry length is read from the file,
+  /// then, the entry contents is read using the entry length
+  /// that we jusst read.
   pub fn read(&self, position: u64) -> Result<Vec<u8>> {
     // Flush BufWriter to ensure that content has been written to the underlying
     // file before we read it.
@@ -63,23 +89,30 @@ impl Store {
 
     let _ = writer.flush()?;
 
-    // buffer len is LEN_WIDTH because we will read LEN_WIDTH bytes
-    // stating from position.
-    let mut buffer = vec![0u8; LEN_WIDTH];
+    // Buffer that will contain the entry length
+    let mut buffer = [0u8; LEN_WIDTH];
 
     let file = writer.get_ref();
-    // TODO:
-    // First file read should read only a header
-    // that says how many bytes the record contains.
-    // Then we should do another file read to get the whole record.
 
-    // TODO: should an error be returned if we're unable to read 8 bytes?
-    let _ = file.read_at(&mut buffer, position)?;
+    // Read the entry length(first 8 bytes) into the buffer.
+    file.read_exact_at(&mut buffer, position)?;
+
+    let entry_length = u64::from_be_bytes(buffer);
+
+    // Buffer that will contain the entry contents
+    let mut buffer = vec![0u8; entry_length as usize];
+
+    // Read entry contents (entry_length bytes after position + bytes that contain the entry length)
+    file.read_exact_at(&mut buffer, position + LEN_WIDTH as u64)?;
 
     Ok(buffer)
   }
 
-  pub fn read_at(&self, buffer: &mut [u8], position: u64) -> std::io::Result<usize> {
+  /// Same as Store::read but the buffer is provided by the caller.
+  ///
+  /// An error will be returned if the buffer length is not the same as the
+  /// entry contents at position.
+  pub fn read_at(&self, buffer: &mut [u8], position: u64) -> std::io::Result<()> {
     // Flush BufWriter to ensure that content has been written to the underlying
     // file before we read it.
     let mut writer = self.writer.lock().unwrap();
@@ -88,12 +121,85 @@ impl Store {
 
     let file = writer.get_ref();
 
-    file.read_at(buffer, position)
+    file.read_exact_at(buffer, position + LEN_WIDTH as u64)
   }
 
   pub fn flush(&self) -> Result<(), std::io::Error> {
     let mut writer = self.writer.lock().unwrap();
 
     writer.flush()
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use tempfile::NamedTempFile;
+
+  use super::*;
+
+  #[test]
+  fn test_append() {
+    let file_write = NamedTempFile::new().unwrap();
+
+    let mut store = Store::new(file_write.into_file()).unwrap();
+
+    let bytes = "hello world".as_bytes();
+
+    // appended_at should be 0 because file is empty.
+    assert_eq!(
+      AppendOutput {
+        appended_at: 0,
+        bytes_written: (LEN_WIDTH + bytes.len()) as u64,
+      },
+      store.append(bytes).unwrap(),
+    );
+
+    // appended_at should be 19 because the store file
+    // contains one entry.
+    assert_eq!(
+      AppendOutput {
+        appended_at: 19,
+        bytes_written: (LEN_WIDTH + bytes.len()) as u64,
+      },
+      store.append(bytes).unwrap(),
+    );
+  }
+
+  #[test]
+  fn test_read() {
+    let file_write = NamedTempFile::new().unwrap();
+
+    let mut store = Store::new(file_write.into_file()).unwrap();
+
+    let tests = vec!["hello world", r#"{"key": "value"}"#];
+
+    for input in tests {
+      let bytes = input.as_bytes();
+
+      let output = store.append(bytes).unwrap();
+
+      assert_eq!(bytes.to_vec(), store.read(output.appended_at).unwrap());
+    }
+  }
+
+  #[test]
+  fn test_read_at() {
+    let file_write = NamedTempFile::new().unwrap();
+
+    let mut store = Store::new(file_write.into_file()).unwrap();
+
+    let tests = vec!["hello world", r#"{"key": "value"}"#];
+
+    for input in tests {
+      let bytes = input.as_bytes();
+
+      let mut buffer = vec![0u8; bytes.len()];
+
+      let output = store.append(bytes).unwrap();
+
+      store.read_at(&mut buffer, output.appended_at).unwrap();
+
+      assert_eq!(bytes.to_vec(), buffer);
+    }
   }
 }
