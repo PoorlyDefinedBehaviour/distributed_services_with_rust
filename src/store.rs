@@ -124,10 +124,15 @@ impl Store {
     file.read_exact_at(buffer, position + LEN_WIDTH as u64)
   }
 
-  pub fn flush(&self) -> Result<(), std::io::Error> {
+  /// Flushes BufWriter contents to storage.
+  ///
+  /// The BufWriter is dropped as well.
+  pub fn close(self) -> Result<(), std::io::Error> {
     let mut writer = self.writer.lock().unwrap();
 
-    writer.flush()
+    writer.flush()?;
+
+    Ok(())
   }
 
   /// Returns the store file size.
