@@ -29,6 +29,8 @@ use std::{fs::File, io::Write};
 use anyhow::Result;
 use memmap::MmapMut;
 use thiserror::Error;
+
+use crate::segment;
 /// WIDTH constants define the number of bytes that
 /// make up each index entry.
 ///
@@ -50,13 +52,8 @@ pub struct Index {
 }
 
 #[derive(Debug)]
-pub struct SegmentConfig {
-  max_index_bytes: u64,
-}
-
-#[derive(Debug)]
 pub struct Config {
-  segment: SegmentConfig,
+  pub segment: segment::Config,
 }
 
 #[derive(Debug, PartialEq, Error)]
@@ -69,7 +66,10 @@ pub enum IndexError {
 
 impl Index {
   pub fn new(file: File, config: Config) -> Result<Self> {
-    let metadata = file.metadata()?;
+    // TODO: if program exists without calling Index::close,
+    // file.metadata()?.len() will return config.segment.max_index_bytes
+    // instead of the file size based on the contents of the file.
+    let initial_file_size = file.metadata()?.len();
 
     // Grow file to the max index size before memory mapping it
     // because we cannot resize the file after it is memory mapped.
@@ -80,13 +80,20 @@ impl Index {
     Ok(Self {
       file,
       mmap,
-      size: metadata.len(),
+      size: initial_file_size,
     })
+  }
+
+  /// Returns the index size.
+  ///
+  /// The index size is the sum of all entries in the index.
+  pub fn size(&self) -> u64 {
+    self.size
   }
 
   /// Returns how many entries the index contains.
   fn len(&self) -> u64 {
-    return self.size / ENTRY_WIDTH;
+    self.size / ENTRY_WIDTH
   }
 
   /// Returns true when the index contains no entries.
@@ -97,10 +104,17 @@ impl Index {
   /// Returns true when the index has the maximum
   /// amount of entries.
   fn is_full(&self) -> bool {
-    (self.mmap.len() as u64) < self.size + ENTRY_WIDTH
+    // TODO: fix me
+    return false;
+    self.size + ENTRY_WIDTH > (self.mmap.len() as u64)
   }
 
-  /// Appends the given offset and position to the index.
+  /// Appends a new entry to the index.
+  ///
+  /// Each index entry is made of two values and occupy 12 bytes:
+  ///
+  /// 4 bytes for the offset
+  /// 8 bytes for the position
   ///
   /// Returns `IndexError::IndexIsFull` if the index file
   /// does not contain enough space for the new entry.
@@ -152,6 +166,26 @@ impl Index {
     Ok(position)
   }
 
+  // Returns the offset contained by the last index entry.
+  pub fn last_offset(&self) -> Option<u32> {
+    if self.is_empty() {
+      return None;
+    }
+
+    let offset_starts_at = ((self.len() - 1) * ENTRY_WIDTH) as usize;
+
+    let offset_range = offset_starts_at..(offset_starts_at + OFFSET_WIDTH as usize);
+
+    let mut buffer = [0u8; 4];
+
+    // Copy position bytes(8 bytes) to buffer.
+    buffer[..].copy_from_slice(&self.mmap[offset_range]);
+
+    let offset = u32::from_be_bytes(buffer);
+
+    Some(offset)
+  }
+
   /// Syncs memory-mapped file to the persisted file,
   /// flushes persisted file contents to stable storage
   /// and truncates the persisted file to the amount of data
@@ -183,7 +217,9 @@ mod tests {
     let mut index1 = Index::new(
       file.into_file(),
       Config {
-        segment: SegmentConfig {
+        segment: segment::Config {
+          initial_offset: 0,
+          max_store_bytes: 0,
           max_index_bytes: 1024,
         },
       },
@@ -200,7 +236,9 @@ mod tests {
     let index2 = Index::new(
       file_copy,
       Config {
-        segment: SegmentConfig {
+        segment: segment::Config {
+          initial_offset: 0,
+          max_store_bytes: 0,
           max_index_bytes: 1024,
         },
       },
@@ -218,7 +256,9 @@ mod tests {
     let mut index = Index::new(
       file_write.into_file(),
       Config {
-        segment: SegmentConfig {
+        segment: segment::Config {
+          initial_offset: 0,
+          max_store_bytes: 0,
           max_index_bytes: 1024,
         },
       },
@@ -264,7 +304,9 @@ mod tests {
     let mut index = Index::new(
       file_write.into_file(),
       Config {
-        segment: SegmentConfig {
+        segment: segment::Config {
+          initial_offset: 0,
+          max_store_bytes: 0,
           max_index_bytes: 1024,
         },
       },
@@ -299,7 +341,9 @@ mod tests {
     let mut index = Index::new(
       file_write.into_file(),
       Config {
-        segment: SegmentConfig {
+        segment: segment::Config {
+          initial_offset: 0,
+          max_store_bytes: 0,
           max_index_bytes: 1024,
         },
       },
@@ -317,5 +361,66 @@ mod tests {
     assert_eq!(Ok(1), index.read(2));
     assert_eq!(Ok(333), index.read(3));
     assert_eq!(Ok(42), index.read(4));
+  }
+
+  #[test]
+  fn last_offset_returns_the_offset_contained_by_the_last_index_entry() {
+    let mut index = Index::new(
+      NamedTempFile::new().unwrap().into_file(),
+      Config {
+        segment: segment::Config {
+          initial_offset: 0,
+          max_store_bytes: 0,
+          max_index_bytes: 1024,
+        },
+      },
+    )
+    .unwrap();
+
+    // Empty index does not have any offsets.
+    assert_eq!(None, index.last_offset());
+
+    index.write(0, 1).unwrap();
+
+    assert_eq!(Some(0), index.last_offset());
+
+    index.write(1, 2).unwrap();
+
+    assert_eq!(Some(1), index.last_offset());
+
+    index.write(333, 3).unwrap();
+
+    assert_eq!(Some(333), index.last_offset());
+  }
+
+  #[test]
+  fn test_size() {
+    let mut index = Index::new(
+      NamedTempFile::new().unwrap().into_file(),
+      Config {
+        segment: segment::Config {
+          initial_offset: 0,
+          max_store_bytes: 0,
+          max_index_bytes: 1024,
+        },
+      },
+    )
+    .unwrap();
+
+    assert_eq!(0, index.size());
+
+    // Index has no entries
+    index.write(0, 1).unwrap();
+
+    // 4 bytes for the offset + 8 bytes for the position
+    let index_entry_size = 4 + 8;
+
+    // Index has one entry
+    assert_eq!(index_entry_size, index.size());
+
+    index.write(1, 2).unwrap();
+
+    // Index has two entries
+    assert_eq!(index_entry_size * 2, index.size());
   }
 }
