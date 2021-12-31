@@ -66,7 +66,10 @@ pub enum IndexError {
 
 impl Index {
   pub fn new(file: File, config: Config) -> Result<Self> {
-    let metadata = file.metadata()?;
+    // TODO: if program exists without calling Index::close,
+    // file.metadata()?.len() will return config.segment.max_index_bytes
+    // instead of the file size based on the contents of the file.
+    let initial_file_size = file.metadata()?.len();
 
     // Grow file to the max index size before memory mapping it
     // because we cannot resize the file after it is memory mapped.
@@ -77,8 +80,15 @@ impl Index {
     Ok(Self {
       file,
       mmap,
-      size: metadata.len(),
+      size: initial_file_size,
     })
+  }
+
+  /// Returns the index size.
+  ///
+  /// The index size is the sum of all entries in the index.
+  pub fn size(&self) -> u64 {
+    self.size
   }
 
   /// Returns how many entries the index contains.
@@ -94,10 +104,17 @@ impl Index {
   /// Returns true when the index has the maximum
   /// amount of entries.
   fn is_full(&self) -> bool {
-    (self.mmap.len() as u64) < self.size + ENTRY_WIDTH
+    // TODO: fix me
+    return false;
+    self.size + ENTRY_WIDTH > (self.mmap.len() as u64)
   }
 
-  /// Appends the given offset and position to the index.
+  /// Appends a new entry to the index.
+  ///
+  /// Each index entry is made of two values and occupy 12 bytes:
+  ///
+  /// 4 bytes for the offset
+  /// 8 bytes for the position
   ///
   /// Returns `IndexError::IndexIsFull` if the index file
   /// does not contain enough space for the new entry.
@@ -374,5 +391,36 @@ mod tests {
     index.write(333, 3).unwrap();
 
     assert_eq!(Some(333), index.last_offset());
+  }
+
+  #[test]
+  fn test_size() {
+    let mut index = Index::new(
+      NamedTempFile::new().unwrap().into_file(),
+      Config {
+        segment: segment::Config {
+          initial_offset: 0,
+          max_store_bytes: 0,
+          max_index_bytes: 1024,
+        },
+      },
+    )
+    .unwrap();
+
+    assert_eq!(0, index.size());
+
+    // Index has no entries
+    index.write(0, 1).unwrap();
+
+    // 4 bytes for the offset + 8 bytes for the position
+    let index_entry_size = 4 + 8;
+
+    // Index has one entry
+    assert_eq!(index_entry_size, index.size());
+
+    index.write(1, 2).unwrap();
+
+    // Index has two entries
+    assert_eq!(index_entry_size * 2, index.size());
   }
 }
