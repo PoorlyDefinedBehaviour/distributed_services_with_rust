@@ -193,20 +193,20 @@ impl Log {
   ///
   /// The lowest offset will be used for consensus
   /// in the replicated cluster.
-  pub fn lowest_offset(&self) -> Result<u64> {
+  pub fn lowest_offset(&self) -> u64 {
     let _lock = self.lock.read().unwrap();
 
-    Ok(self.segments.first().unwrap().base_offset())
+    self.segments.first().unwrap().base_offset()
   }
 
   /// Returns the next offset of the last segment.
   ///
   /// The highest offset will be used for consensus
   /// in the replicated cluster.
-  pub fn highest_offset(&self) -> Result<u64> {
+  pub fn highest_offset(&self) -> u64 {
     let _lock = self.lock.read().unwrap();
 
-    Ok(self.segments.last().unwrap().next_offset() - 1)
+    self.segments.last().unwrap().next_offset() - 1
   }
 
   /// Removes segments whose highest offset is lower than lowest.
@@ -245,7 +245,7 @@ impl Log {
       segment::Config {
         max_index_bytes: self.config.max_index_bytes_per_segment,
         max_store_bytes: self.config.max_store_bytes_per_segment,
-        initial_offset: 0,
+        initial_offset: offset,
       },
     )?;
 
@@ -349,5 +349,16 @@ mod tests {
         log.read(expected_offset).unwrap()
       );
     }
+  }
+
+  #[test]
+  fn lowest_offset_returns_base_offset_of_the_first_segment() {
+    let mut log = new_log();
+
+    assert_eq!(log.config.initial_offset, log.lowest_offset());
+
+    log.new_segment(log.config.initial_offset + 1).unwrap();
+
+    assert_eq!(log.config.initial_offset, log.lowest_offset());
   }
 }
