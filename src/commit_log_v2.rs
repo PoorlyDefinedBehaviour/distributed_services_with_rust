@@ -206,7 +206,7 @@ impl Log {
   pub fn highest_offset(&self) -> u64 {
     let _lock = self.lock.read().unwrap();
 
-    self.segments.last().unwrap().next_offset() - 1
+    self.segments.last().unwrap().next_offset()
   }
 
   /// Removes segments whose highest offset is lower than lowest.
@@ -360,5 +360,18 @@ mod tests {
     log.new_segment(log.config.initial_offset + 1).unwrap();
 
     assert_eq!(log.config.initial_offset, log.lowest_offset());
+  }
+
+  #[test]
+  fn highest_offset_returns_the_next_offset_that_will_be_used_by_the_newest_segment() {
+    let mut log = new_log();
+
+    // The last used offset of the last segment will be the initial offset
+    // because the log is empty.
+    assert_eq!(log.config.initial_offset, log.highest_offset());
+
+    log.append("hello world".as_bytes().to_vec()).unwrap();
+
+    assert_eq!(log.config.initial_offset + 1, log.highest_offset());
   }
 }
