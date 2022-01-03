@@ -24,7 +24,7 @@ pub struct Log {
   lock: RwLock<bool>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Config {
   initial_offset: u64,
   max_store_bytes_per_segment: u64,
@@ -48,7 +48,7 @@ impl Default for Config {
 }
 
 impl Log {
-  fn read_segments_from_disk(directory: &str) -> Result<Vec<Segment>> {
+  fn read_segments_from_disk(directory: &str, config: &Config) -> Result<Vec<Segment>> {
     let file_names: Vec<String> = std::fs::read_dir(directory)?
       .filter(|entry| entry.is_ok())
       .map(|entry| entry.unwrap().file_name())
@@ -84,8 +84,8 @@ impl Log {
           directory,
           offset,
           segment::Config {
-            max_index_bytes: 0,
-            max_store_bytes: 0,
+            max_index_bytes: config.max_index_bytes_per_segment,
+            max_store_bytes: config.max_store_bytes_per_segment,
             initial_offset: 0,
           },
         )
@@ -96,7 +96,7 @@ impl Log {
   }
 
   pub fn new(directory: String, config: Config) -> Result<Self> {
-    let mut segments = Self::read_segments_from_disk(&directory)?;
+    let mut segments = Self::read_segments_from_disk(&directory, &config)?;
 
     // If the log is new and there are no segments on disk,
     // we create the first one.
@@ -105,8 +105,8 @@ impl Log {
         &directory,
         config.initial_offset,
         segment::Config {
-          max_index_bytes: 0,
-          max_store_bytes: 0,
+          max_index_bytes: config.max_index_bytes_per_segment,
+          max_store_bytes: config.max_store_bytes_per_segment,
           initial_offset: 0,
         },
       )?)
@@ -182,9 +182,15 @@ impl Log {
 
   /// Deletes the log directory and then closes every segment in the log.
   pub fn remove(self) -> Result<()> {
-    std::fs::remove_dir_all(&self.directory)?;
+    let directory = self.directory.clone();
 
     self.close()?;
+
+    // TODO: is this a waste?
+    // We are flushing the store and index to disk
+    // because of Store::close and Index::close
+    // and then deleting the folder containing the flushed data.
+    std::fs::remove_dir_all(directory)?;
 
     Ok(())
   }
@@ -193,23 +199,27 @@ impl Log {
   ///
   /// The lowest offset will be used for consensus
   /// in the replicated cluster.
-  pub fn lowest_offset(&self) -> Result<u64> {
+  pub fn lowest_offset(&self) -> u64 {
     let _lock = self.lock.read().unwrap();
 
-    Ok(self.segments.first().unwrap().base_offset())
+    self.segments.first().unwrap().base_offset()
   }
 
   /// Returns the next offset of the last segment.
   ///
   /// The highest offset will be used for consensus
   /// in the replicated cluster.
-  pub fn highest_offset(&self) -> Result<u64> {
+  pub fn highest_offset(&self) -> u64 {
     let _lock = self.lock.read().unwrap();
 
-    Ok(self.segments.last().unwrap().next_offset() - 1)
+    self.segments.last().unwrap().next_offset()
   }
 
   /// Removes segments whose highest offset is lower than lowest.
+  ///
+  /// It is called periodically to remove old segments whose
+  /// data has already been processed.
+  ///
   /// TODO: add diagram [removed, removed, removed, kept, kept]
   pub fn truncate(&mut self, lowest: u64) -> Result<()> {
     let _lock = self.lock.write().unwrap();
@@ -230,33 +240,121 @@ impl Log {
 
     Ok(())
   }
+
+  /// Creates a new segment, appends it to the list of segments
+  /// and makes it the active segment.
+  pub fn new_segment(&mut self, offset: u64) -> Result<()> {
+    let segment = Segment::new(
+      &self.directory,
+      self.config.initial_offset,
+      // TODO: use actual config
+      segment::Config {
+        max_index_bytes: self.config.max_index_bytes_per_segment,
+        max_store_bytes: self.config.max_store_bytes_per_segment,
+        initial_offset: offset,
+      },
+    )?;
+
+    self.segments.push(segment);
+    self.active_segment = self.segments.len() - 1;
+
+    Ok(())
+  }
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::segment;
   use tempfile;
 
-  #[test]
-  fn foo() {
-    let path = tempfile::tempdir().unwrap().into_path();
-    let dir = path.to_str().unwrap();
-    let mut segment = Segment::new(
-      dir,
-      0,
-      segment::Config {
-        initial_offset: 0,
-        max_index_bytes: 24,
-        max_store_bytes: 128,
-      },
+  fn new_log() -> Log {
+    Log::new(
+      tempfile::tempdir()
+        .unwrap()
+        .into_path()
+        .to_str()
+        .unwrap()
+        .to_owned(),
+      Config::default(),
     )
-    .unwrap();
+    .unwrap()
+  }
 
-    assert_eq!(false, segment.is_maxed());
+  #[test]
+  fn append_then_read() {
+    let mut log = new_log();
 
-    segment.append(vec![0u8; 8]).unwrap();
+    let tests = vec![("a", 0), ("b", 1), ("c", 2)];
 
-    Log::read_segments_from_disk(dir);
+    for (input, expected_offset) in tests {
+      let input = input.as_bytes().to_vec();
+
+      let offset = log.append(input.clone()).unwrap();
+
+      assert_eq!(expected_offset, offset);
+
+      assert_eq!(
+        api::v1::Record {
+          offset: expected_offset,
+          value: input,
+        },
+        log.read(offset).unwrap(),
+      );
+    }
+  }
+
+  #[test]
+  fn log_reuses_data_stored_on_disk_by_prior_log_instances() {
+    let mut log = new_log();
+
+    let data = vec![(0, "a"), (1, "b"), (2, "c")];
+
+    for (_, input) in &data {
+      log.append(input.as_bytes().to_vec()).unwrap();
+    }
+
+    let directory = log.directory.clone();
+    let config = log.config.clone();
+
+    // Ensure contents are flushed to storage.
+    log.close().unwrap();
+
+    // Create a new log that should reuse the files that contain
+    // the data created by the first log.
+    let log = Log::new(directory, config).unwrap();
+
+    for (expected_offset, input) in data {
+      assert_eq!(
+        api::v1::Record {
+          offset: expected_offset,
+          value: input.as_bytes().to_vec(),
+        },
+        log.read(expected_offset).unwrap()
+      );
+    }
+  }
+
+  #[test]
+  fn lowest_offset_returns_base_offset_of_the_first_segment() {
+    let mut log = new_log();
+
+    assert_eq!(log.config.initial_offset, log.lowest_offset());
+
+    log.new_segment(log.config.initial_offset + 1).unwrap();
+
+    assert_eq!(log.config.initial_offset, log.lowest_offset());
+  }
+
+  #[test]
+  fn highest_offset_returns_the_next_offset_that_will_be_used_by_the_newest_segment() {
+    let mut log = new_log();
+
+    // The last used offset of the last segment will be the initial offset
+    // because the log is empty.
+    assert_eq!(log.config.initial_offset, log.highest_offset());
+
+    log.append("hello world".as_bytes().to_vec()).unwrap();
+
+    assert_eq!(log.config.initial_offset + 1, log.highest_offset());
   }
 }
