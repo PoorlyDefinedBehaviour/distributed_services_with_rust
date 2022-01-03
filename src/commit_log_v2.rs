@@ -24,7 +24,7 @@ pub struct Log {
   lock: RwLock<bool>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Config {
   initial_offset: u64,
   max_store_bytes_per_segment: u64,
@@ -48,7 +48,7 @@ impl Default for Config {
 }
 
 impl Log {
-  fn read_segments_from_disk(directory: &str) -> Result<Vec<Segment>> {
+  fn read_segments_from_disk(directory: &str, config: &Config) -> Result<Vec<Segment>> {
     let file_names: Vec<String> = std::fs::read_dir(directory)?
       .filter(|entry| entry.is_ok())
       .map(|entry| entry.unwrap().file_name())
@@ -84,8 +84,8 @@ impl Log {
           directory,
           offset,
           segment::Config {
-            max_index_bytes: 0,
-            max_store_bytes: 0,
+            max_index_bytes: config.max_index_bytes_per_segment,
+            max_store_bytes: config.max_store_bytes_per_segment,
             initial_offset: 0,
           },
         )
@@ -96,7 +96,7 @@ impl Log {
   }
 
   pub fn new(directory: String, config: Config) -> Result<Self> {
-    let mut segments = Self::read_segments_from_disk(&directory)?;
+    let mut segments = Self::read_segments_from_disk(&directory, &config)?;
 
     // If the log is new and there are no segments on disk,
     // we create the first one.
@@ -105,8 +105,8 @@ impl Log {
         &directory,
         config.initial_offset,
         segment::Config {
-          max_index_bytes: 0,
-          max_store_bytes: 0,
+          max_index_bytes: config.max_index_bytes_per_segment,
+          max_store_bytes: config.max_store_bytes_per_segment,
           initial_offset: 0,
         },
       )?)
@@ -210,6 +210,10 @@ impl Log {
   }
 
   /// Removes segments whose highest offset is lower than lowest.
+  ///
+  /// It is called periodically to remove old segments whose
+  /// data has already been processed.
+  ///
   /// TODO: add diagram [removed, removed, removed, kept, kept]
   pub fn truncate(&mut self, lowest: u64) -> Result<()> {
     let _lock = self.lock.write().unwrap();
@@ -230,6 +234,26 @@ impl Log {
 
     Ok(())
   }
+
+  /// Creates a new segment, appends it to the list of segments
+  /// and makes it the active segment.
+  pub fn new_segment(&mut self, offset: u64) -> Result<()> {
+    let segment = Segment::new(
+      &self.directory,
+      self.config.initial_offset,
+      // TODO: use actual config
+      segment::Config {
+        max_index_bytes: self.config.max_index_bytes_per_segment,
+        max_store_bytes: self.config.max_store_bytes_per_segment,
+        initial_offset: 0,
+      },
+    )?;
+
+    self.segments.push(segment);
+    self.active_segment = self.segments.len() - 1;
+
+    Ok(())
+  }
 }
 
 #[cfg(test)]
@@ -237,6 +261,19 @@ mod tests {
   use super::*;
   use crate::segment;
   use tempfile;
+
+  fn new_log() -> Log {
+    Log::new(
+      tempfile::tempdir()
+        .unwrap()
+        .into_path()
+        .to_str()
+        .unwrap()
+        .to_owned(),
+      Config::default(),
+    )
+    .unwrap()
+  }
 
   #[test]
   fn foo() {
@@ -257,6 +294,60 @@ mod tests {
 
     segment.append(vec![0u8; 8]).unwrap();
 
-    Log::read_segments_from_disk(dir);
+    // Log::read_segments_from_disk(dir);
+  }
+
+  #[test]
+  fn append_then_read() {
+    let mut log = new_log();
+
+    let tests = vec![("a", 0), ("b", 1), ("c", 2)];
+
+    for (input, expected_offset) in tests {
+      let input = input.as_bytes().to_vec();
+
+      let offset = log.append(input.clone()).unwrap();
+
+      assert_eq!(expected_offset, offset);
+
+      assert_eq!(
+        api::v1::Record {
+          offset: expected_offset,
+          value: input,
+        },
+        log.read(offset).unwrap(),
+      );
+    }
+  }
+
+  #[test]
+  fn log_reuses_data_stored_on_disk_by_prior_log_instances() {
+    let mut log = new_log();
+
+    let data = vec![(0, "a"), (1, "b"), (2, "c")];
+
+    for (_, input) in &data {
+      log.append(input.as_bytes().to_vec()).unwrap();
+    }
+
+    let directory = log.directory.clone();
+    let config = log.config.clone();
+
+    // Ensure contents are flushed to storage.
+    log.close().unwrap();
+
+    // Create a new log that should reuse the files that contain
+    // the data created by the first log.
+    let log = Log::new(directory, config).unwrap();
+
+    for (expected_offset, input) in data {
+      assert_eq!(
+        api::v1::Record {
+          offset: expected_offset,
+          value: input.as_bytes().to_vec(),
+        },
+        log.read(expected_offset).unwrap()
+      );
+    }
   }
 }
