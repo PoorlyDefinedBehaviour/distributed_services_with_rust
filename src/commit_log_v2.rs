@@ -182,9 +182,15 @@ impl Log {
 
   /// Deletes the log directory and then closes every segment in the log.
   pub fn remove(self) -> Result<()> {
-    std::fs::remove_dir_all(&self.directory)?;
+    let directory = self.directory.clone();
 
     self.close()?;
+
+    // TODO: is this a waste?
+    // We are flushing the store and index to disk
+    // because of Store::close and Index::close
+    // and then deleting the folder containing the flushed data.
+    std::fs::remove_dir_all(directory)?;
 
     Ok(())
   }
@@ -259,7 +265,6 @@ impl Log {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::segment;
   use tempfile;
 
   fn new_log() -> Log {
@@ -273,28 +278,6 @@ mod tests {
       Config::default(),
     )
     .unwrap()
-  }
-
-  #[test]
-  fn foo() {
-    let path = tempfile::tempdir().unwrap().into_path();
-    let dir = path.to_str().unwrap();
-    let mut segment = Segment::new(
-      dir,
-      0,
-      segment::Config {
-        initial_offset: 0,
-        max_index_bytes: 24,
-        max_store_bytes: 128,
-      },
-    )
-    .unwrap();
-
-    assert_eq!(false, segment.is_maxed());
-
-    segment.append(vec![0u8; 8]).unwrap();
-
-    // Log::read_segments_from_disk(dir);
   }
 
   #[test]
