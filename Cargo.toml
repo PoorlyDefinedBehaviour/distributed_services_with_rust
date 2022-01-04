@@ -21,6 +21,9 @@ prost = "0.9"
 prost-types = "0.9"
 memmap = "0.7.0"
 tempfile = "3.2.0"
+tracing = "0.1"
+tracing-subscriber = "0.2"
+tracing-futures = "0.2.0"
 
 [build-dependencies]
 prost-build = "0.5"
