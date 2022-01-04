@@ -209,7 +209,7 @@ mod tests {
   use std::io::Read;
   use tempfile::NamedTempFile;
 
-  #[test]
+  #[test_log::test]
   fn index_rebuilds_state_from_file_if_file_is_not_empty() {
     let file = NamedTempFile::new().unwrap();
     let file_copy = file.reopen().unwrap();
@@ -248,7 +248,7 @@ mod tests {
     assert_eq!(Ok(10), index2.read(0));
   }
 
-  #[test]
+  #[test_log::test]
   fn write() {
     let file_write = NamedTempFile::new().unwrap();
     let mut file_read = file_write.reopen().unwrap();
@@ -297,7 +297,7 @@ mod tests {
     assert_eq!(expected, buffer);
   }
 
-  #[test]
+  #[test_log::test]
   fn read_returns_error_if_offset_is_greater_than_the_index_size() {
     let file_write = NamedTempFile::new().unwrap();
 
@@ -334,7 +334,7 @@ mod tests {
     );
   }
 
-  #[test]
+  #[test_log::test]
   fn read_returns_position_thats_mapped_to_the_offset() {
     let file_write = NamedTempFile::new().unwrap();
 
@@ -363,7 +363,7 @@ mod tests {
     assert_eq!(Ok(42), index.read(4));
   }
 
-  #[test]
+  #[test_log::test]
   fn last_offset_returns_the_offset_contained_by_the_last_index_entry() {
     let mut index = Index::new(
       NamedTempFile::new().unwrap().into_file(),
@@ -393,7 +393,7 @@ mod tests {
     assert_eq!(Some(333), index.last_offset());
   }
 
-  #[test]
+  #[test_log::test]
   fn test_size() {
     let mut index = Index::new(
       NamedTempFile::new().unwrap().into_file(),

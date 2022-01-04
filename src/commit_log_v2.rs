@@ -280,7 +280,7 @@ mod tests {
     .unwrap()
   }
 
-  #[test]
+  #[test_log::test]
   fn append_then_read() {
     let mut log = new_log();
 
@@ -303,7 +303,7 @@ mod tests {
     }
   }
 
-  #[test]
+  #[test_log::test]
   fn log_reuses_data_stored_on_disk_by_prior_log_instances() {
     let mut log = new_log();
 
@@ -334,7 +334,7 @@ mod tests {
     }
   }
 
-  #[test]
+  #[test_log::test]
   fn lowest_offset_returns_base_offset_of_the_first_segment() {
     let mut log = new_log();
 
@@ -345,7 +345,7 @@ mod tests {
     assert_eq!(log.config.initial_offset, log.lowest_offset());
   }
 
-  #[test]
+  #[test_log::test]
   fn highest_offset_returns_the_next_offset_that_will_be_used_by_the_newest_segment() {
     let mut log = new_log();
 
@@ -356,5 +356,21 @@ mod tests {
     log.append("hello world".as_bytes().to_vec()).unwrap();
 
     assert_eq!(log.config.initial_offset + 1, log.highest_offset());
+  }
+
+  #[test_log::test]
+  fn test_truncate() {
+    let mut log = new_log();
+
+    log.new_segment(1).unwrap();
+    log.new_segment(2).unwrap();
+    log.new_segment(3).unwrap();
+
+    // Initial segment + 3 segments added.
+    assert_eq!(4, log.segments.len());
+
+    log.truncate(4).unwrap();
+
+    assert!(log.segments.is_empty());
   }
 }

@@ -1,7 +1,7 @@
 /// Store represents a file where records are stored.
 use std::{
   fs::{File, Metadata},
-  io::{BufWriter, Read, Write},
+  io::{BufWriter, Write},
   os::unix::prelude::FileExt,
   sync::Mutex,
 };
@@ -146,10 +146,11 @@ impl Store {
 #[cfg(test)]
 mod tests {
   use tempfile::NamedTempFile;
+  use tracing::info;
 
   use super::*;
 
-  #[test]
+  #[test_log::test]
   fn test_append() {
     let file_write = NamedTempFile::new().unwrap();
 
@@ -177,7 +178,7 @@ mod tests {
     );
   }
 
-  #[test]
+  #[test_log::test]
   fn test_read() {
     let file_write = NamedTempFile::new().unwrap();
 
@@ -194,7 +195,7 @@ mod tests {
     }
   }
 
-  #[test]
+  #[test_log::test]
   fn test_read_at() {
     let file_write = NamedTempFile::new().unwrap();
 
@@ -215,7 +216,7 @@ mod tests {
     }
   }
 
-  #[test]
+  #[test_log::test]
   fn test_size() {
     let file_write = NamedTempFile::new().unwrap();
 
