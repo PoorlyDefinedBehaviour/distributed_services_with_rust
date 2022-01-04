@@ -2,6 +2,7 @@ use std::sync::RwLock;
 use thiserror::Error;
 
 use anyhow::Result;
+use tracing::info;
 
 use crate::{
   api,
@@ -222,6 +223,8 @@ impl Log {
   ///
   /// TODO: add diagram [removed, removed, removed, kept, kept]
   pub fn truncate(&mut self, lowest: u64) -> Result<()> {
+    info!(lowest, "truncating segments");
+
     let _lock = self.lock.write().unwrap();
 
     let mut end_index = 0;
@@ -244,9 +247,11 @@ impl Log {
   /// Creates a new segment, appends it to the list of segments
   /// and makes it the active segment.
   pub fn new_segment(&mut self, offset: u64) -> Result<()> {
+    info!("creating new segment at offset {}", offset);
+
     let segment = Segment::new(
       &self.directory,
-      self.config.initial_offset,
+      self.config.initial_offset + offset,
       // TODO: use actual config
       segment::Config {
         max_index_bytes: self.config.max_index_bytes_per_segment,

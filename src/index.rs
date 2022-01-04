@@ -29,6 +29,7 @@ use std::{fs::File, io::Write};
 use anyhow::Result;
 use memmap::MmapMut;
 use thiserror::Error;
+use tracing::info;
 
 use crate::segment;
 /// WIDTH constants define the number of bytes that
@@ -191,6 +192,8 @@ impl Index {
   /// and truncates the persisted file to the amount of data
   /// that's actually in it and then closes the file.
   pub fn close(mut self) -> Result<(), std::io::Error> {
+    info!(self.size, "closing index");
+
     self.mmap.flush()?;
 
     self.file.set_len(self.size)?;

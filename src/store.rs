@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::Result;
+use tracing::info;
 
 const LEN_WIDTH: usize = 8;
 
@@ -128,6 +129,8 @@ impl Store {
   ///
   /// The BufWriter is dropped as well.
   pub fn close(self) -> Result<(), std::io::Error> {
+    info!(self.file_size, "closing store");
+
     let mut writer = self.writer.lock().unwrap();
 
     writer.flush()?;
@@ -146,7 +149,6 @@ impl Store {
 #[cfg(test)]
 mod tests {
   use tempfile::NamedTempFile;
-  use tracing::info;
 
   use super::*;
 

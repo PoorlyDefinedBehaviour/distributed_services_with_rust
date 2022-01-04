@@ -144,7 +144,12 @@ impl Segment {
   /// Closes store and segment files
   /// and then deletes them from disk.
   pub fn remove(self) -> Result<()> {
+    info!("deleting index file {:?}", &self.index_file_path);
+
     std::fs::remove_file(self.index_file_path.clone())?;
+
+    info!("deleting store file {:?}", &self.store_file_path);
+
     std::fs::remove_file(self.store_file_path.clone())?;
 
     self.close()?;
@@ -154,6 +159,8 @@ impl Segment {
 
   /// Closes index and store files.
   pub fn close(self) -> Result<()> {
+    info!(self.base_offset, self.next_offset, "closing segment");
+
     self.index.close()?;
 
     self.store.close()?;
