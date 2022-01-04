@@ -4,6 +4,8 @@ use std::{
   path::{Path, PathBuf},
 };
 
+use tracing::{info, instrument};
+
 use anyhow::Result;
 use prost::Message;
 
@@ -44,8 +46,11 @@ pub struct Segment {
 }
 
 impl Segment {
+  #[instrument]
   pub fn new(directory: &str, base_offset: u64, config: Config) -> Result<Self> {
     let store_file_path = Path::new(directory).join(format!("{}.store", base_offset));
+
+    info!("creating store file {:?}", store_file_path);
 
     let store_file = OpenOptions::new()
       .read(true)
@@ -56,6 +61,8 @@ impl Segment {
     let store = Store::new(store_file)?;
 
     let index_file_path = Path::new(directory).join(format!("{}.index", base_offset));
+
+    info!("creating index file {:?}", index_file_path);
 
     let index_file = OpenOptions::new()
       .read(true)
@@ -84,9 +91,9 @@ impl Segment {
       next_offset,
       config,
       index_file_path,
-      index: index,
+      index,
       store_file_path,
-      store: store,
+      store,
     })
   }
 
@@ -137,7 +144,12 @@ impl Segment {
   /// Closes store and segment files
   /// and then deletes them from disk.
   pub fn remove(self) -> Result<()> {
+    info!("deleting index file {:?}", &self.index_file_path);
+
     std::fs::remove_file(self.index_file_path.clone())?;
+
+    info!("deleting store file {:?}", &self.store_file_path);
+
     std::fs::remove_file(self.store_file_path.clone())?;
 
     self.close()?;
@@ -147,6 +159,8 @@ impl Segment {
 
   /// Closes index and store files.
   pub fn close(self) -> Result<()> {
+    info!(self.base_offset, self.next_offset, "closing segment");
+
     self.index.close()?;
 
     self.store.close()?;
@@ -182,7 +196,7 @@ mod tests {
   use super::*;
   use tempfile;
 
-  #[test]
+  #[test_log::test]
   fn append_then_read() {
     let mut segment = Segment::new(
       tempfile::tempdir().unwrap().into_path().to_str().unwrap(),
@@ -219,7 +233,7 @@ mod tests {
     );
   }
 
-  #[test]
+  #[test_log::test]
   fn test_is_maxed_returns_true_when_store_file_is_full() {
     let mut segment = Segment::new(
       tempfile::tempdir().unwrap().into_path().to_str().unwrap(),
@@ -241,7 +255,7 @@ mod tests {
     assert_eq!(true, segment.is_maxed());
   }
 
-  #[test]
+  #[test_log::test]
   fn test_is_maxed_returns_true_when_index_file_is_full() {
     let mut segment = Segment::new(
       tempfile::tempdir().unwrap().into_path().to_str().unwrap(),

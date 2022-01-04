@@ -40,7 +40,7 @@ pub struct Record {
 mod tests {
   use super::*;
 
-  #[test]
+  #[test_log::test]
   fn append_appends_value_with_correct_offset() {
     let mut log = CommitLog::new();
 
@@ -67,7 +67,7 @@ mod tests {
     );
   }
 
-  #[test]
+  #[test_log::test]
   fn append_returns_record_offset() {
     let mut log = CommitLog::new();
 
@@ -76,7 +76,7 @@ mod tests {
     assert_eq!(2, log.append(String::from("c")));
   }
 
-  #[test]
+  #[test_log::test]
   fn read_returns_record_at_given_offset() {
     let mut log = CommitLog::new();
 

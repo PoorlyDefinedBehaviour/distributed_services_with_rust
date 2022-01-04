@@ -1,8 +1,6 @@
-#[macro_use]
-extern crate log;
-
 use actix_web::HttpServer;
 use dotenv::dotenv;
+use tracing::info;
 
 mod api;
 mod app;
@@ -15,11 +13,14 @@ mod store;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-  std::env::set_var("RUST_LOG", "proglog=trace");
+  std::env::set_var(
+    "RUST_LOG",
+    std::env::var("RUST_LOG").unwrap_or(String::from("proglog=trace")),
+  );
 
   dotenv().ok();
 
-  env_logger::init();
+  tracing_subscriber::fmt::init();
 
   let host = std::env::var("HOST").unwrap();
   let port = std::env::var("PORT").unwrap().parse::<u16>().unwrap();

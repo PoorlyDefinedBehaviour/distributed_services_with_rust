@@ -21,7 +21,6 @@ async fn produce_log(
 
 #[get("/log/{offset}")]
 async fn consume_log(log: web::Data<RwLock<CommitLog>>, path: web::Path<usize>) -> impl Responder {
-  dbg!(&path);
   match log.read().unwrap().read(path.into_inner()) {
     None => HttpResponse::NotFound().finish(),
     Some(record) => HttpResponse::Ok().json(viewmodel::ConsumeResponse::from(record)),
