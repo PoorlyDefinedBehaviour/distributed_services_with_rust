@@ -1343,6 +1343,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "test-log",
  "thiserror",
  "tracing",
  "tracing-futures",
@@ -1845,6 +1846,17 @@ dependencies = [
  "redox_syscall",
  "remove_dir_all",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "test-log"
+version = "0.2.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb78caec569a40f42c078c798c0e35b922d9054ec28e166f0d6ac447563d91a4"
+dependencies = [
+ "proc-macro2 1.0.36",
+ "quote 1.0.14",
+ "syn 1.0.84",
 ]
 
 [[package]]
