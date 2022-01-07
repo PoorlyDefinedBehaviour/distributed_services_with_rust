@@ -50,6 +50,8 @@ impl Default for Config {
 
 impl Log {
   fn read_segments_from_disk(directory: &str, config: &Config) -> Result<Vec<Segment>> {
+    info!(directory, "reading segments from disk");
+
     let file_names: Vec<String> = std::fs::read_dir(directory)?
       .filter(|entry| entry.is_ok())
       .map(|entry| entry.unwrap().file_name())
@@ -58,6 +60,8 @@ impl Log {
       // have the same offsets and we only want each offset once.
       .filter(|file_name| file_name.ends_with(".store"))
       .collect();
+
+    info!("store files found on disk: {:?}", &file_names);
 
     // Given a directory that has a bunch of store and index files
     // we want the offset that's in the name of the store files.
@@ -78,6 +82,8 @@ impl Log {
     // Offsets should look like this: 0, 1, 2
     offsets.sort_unstable();
 
+    info!("store files offsets found on disk: {:?}", &offsets);
+
     let segments = offsets
       .into_iter()
       .map(|offset| {
@@ -93,15 +99,21 @@ impl Log {
       })
       .collect::<Result<Vec<Segment>, anyhow::Error>>()?;
 
+    info!("{} segments found on disk", segments.len());
+
     Ok(segments)
   }
 
   pub fn new(directory: String, config: Config) -> Result<Self> {
+    info!("creating log in {}", &directory);
+
     let mut segments = Self::read_segments_from_disk(&directory, &config)?;
 
     // If the log is new and there are no segments on disk,
     // we create the first one.
     if segments.is_empty() {
+      info!("creating first segment in the log");
+
       segments.push(Segment::new(
         &directory,
         config.initial_offset,
@@ -369,13 +381,13 @@ mod tests {
 
     log.new_segment(1).unwrap();
     log.new_segment(2).unwrap();
-    log.new_segment(3).unwrap();
 
-    // Initial segment + 3 segments added.
-    assert_eq!(4, log.segments.len());
+    // Initial segment + 2 segments added.
+    assert_eq!(3, log.segments.len());
 
-    log.truncate(4).unwrap();
+    log.truncate(1).unwrap();
 
-    assert!(log.segments.is_empty());
+    assert_eq!(1, log.segments.len());
+    assert_eq!(2, log.segments[0].base_offset())
   }
 }
