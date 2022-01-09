@@ -6,3 +6,26 @@ message Record {
   bytes value = 1;
   uint64 offset = 2;
 }
+
+service Log {
+  rpc produce(ProduceRequest) returns (ProduceResponse) {}
+  rpc consume(ConsumeRequest) returns (ConsumeResponse) {}
+  rpc consume_stream(ConsumeRequest) returns (stream ConsumeResponse) {}
+  rpc produce_stream(stream ProduceRequest) returns (stream ProduceResponse) {}
+}
+
+message ProduceRequest {
+  bytes value = 1;
+}
+
+message ProduceResponse {
+  uint64 offset = 1;
+}
+
+message ConsumeRequest {
+  uint64 offset = 1;
+}
+
+message ConsumeResponse {
+  Record record = 2;
+}

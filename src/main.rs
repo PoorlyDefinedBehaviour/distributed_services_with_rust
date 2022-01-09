@@ -2,6 +2,7 @@ use actix_web::HttpServer;
 use dotenv::dotenv;
 use tracing::info;
 
+mod server;
 mod api;
 mod app;
 mod commit_log;
