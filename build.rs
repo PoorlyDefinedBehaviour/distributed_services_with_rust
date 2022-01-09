@@ -1,5 +1,7 @@
-extern crate prost_build;
+extern crate tonic_build;
 
-fn main() {
-  prost_build::compile_protos(&["src/api/v1/log.proto"], &["src/"]).unwrap();
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+  tonic_build::compile_protos("src/api/v1/log.proto")?;
+
+  Ok(())
 }
