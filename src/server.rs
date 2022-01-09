@@ -4,10 +4,10 @@ use tokio::sync::{mpsc, RwLock};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 
-use crate::{api, commit_log_v2::Log};
+use crate::{api, commit_log::Log};
 use tracing::error;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LogServer {
   log: Arc<RwLock<Log>>,
 }
@@ -58,7 +58,7 @@ impl api::v1::log_server::Log for LogServer {
   ) -> Result<Response<Self::consume_streamStream>, Status> {
     let mut offset = request.into_inner().offset;
 
-    let (mut tx, rx) = mpsc::channel(4);
+    let (tx, rx) = mpsc::channel(4);
 
     let log = Arc::clone(&self.log);
 
@@ -90,7 +90,7 @@ impl api::v1::log_server::Log for LogServer {
   ) -> Result<Response<Self::produce_streamStream>, Status> {
     let mut request_streamer = request.into_inner();
 
-    let (mut tx, rx) = mpsc::channel(4);
+    let (tx, rx) = mpsc::channel(4);
 
     let log = Arc::clone(&self.log);
 
