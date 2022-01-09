@@ -1,8 +1,8 @@
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 use tokio::sync::{mpsc, RwLock};
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{codegen::futures_core::Stream, Request, Response, Status, Streaming};
+use tonic::{Request, Response, Status, Streaming};
 
 use crate::{api, commit_log_v2::Log};
 use tracing::error;
